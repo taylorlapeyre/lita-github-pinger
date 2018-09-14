@@ -171,46 +171,46 @@ module Lita
         puts "looking at previously notified reviewers for this PR"
 
         pr = body["pull_request"]
-
         url = pr["html_url"]
 
-        notified_engineers = redis.get(REVIEW_REDIS_KEY + ":" + url)
+        redis.lock() do |lock|
+          notified_engineers = redis.get(REVIEW_REDIS_KEY + ":" + url)
 
-        notified_engineers = if notified_engineers
-          JSON.parse(notified_engineers)
-        else
-          []
-        end
-
-        pr["requested_reviewers"].each do |reviewer|
-          engineer = find_engineer(github: reviewer["login"])
-
-          if !engineer
-            puts "Could not find engineer #{reviewer["login"]}"
-            next
-          end
-
-          if notified_engineers.include?(reviewer["login"])
-            puts "#{reviewer["login"]} has already been notified to review PR, skipping..."
-            next
-          end
-
-          puts "#{engineer} determined as a reviewer."
-
-          puts "Looking up preferences..."
-          should_notify = engineer[:github_preferences][:notify_about_review_requests]
-
-          if !should_notify
-            puts "will not notify, preference for :github_preferences[:notify_about_review_requests] is not true"
+          notified_engineers = if notified_engineers
+            JSON.parse(notified_engineers)
           else
-            message = "You've been asked to review a pull request:\n#{url}"
-            send_dm(engineer[:usernames][:slack], message)
-            notified_engineers.push(reviewer["login"])
+            []
           end
+
+          pr["requested_reviewers"].each do |reviewer|
+            engineer = find_engineer(github: reviewer["login"])
+
+            if !engineer
+              puts "Could not find engineer #{reviewer["login"]}"
+              next
+            end
+
+            if notified_engineers.include?(reviewer["login"])
+              puts "#{reviewer["login"]} has already been notified to review PR, skipping..."
+              next
+            end
+
+            puts "#{engineer} determined as a reviewer."
+
+            puts "Looking up preferences..."
+            should_notify = engineer[:github_preferences][:notify_about_review_requests]
+
+            if !should_notify
+              puts "will not notify, preference for :github_preferences[:notify_about_review_requests] is not true"
+            else
+              message = "You've been asked to review a pull request:\n#{url}"
+              send_dm(engineer[:usernames][:slack], message)
+              notified_engineers.push(reviewer["login"])
+            end
+          end
+
+          redis.set(REVIEW_REDIS_KEY + ":" + url, notified_engineers.to_json)
         end
-
-        redis.set(REVIEW_REDIS_KEY + ":" + url, notified_engineers.to_json)
-
         response
       end
 
