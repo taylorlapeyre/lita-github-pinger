@@ -1,4 +1,5 @@
 require 'json'
+require 'mlanett-redis-lock'
 
 module Lita
   module Handlers
@@ -173,7 +174,13 @@ module Lita
         pr = body["pull_request"]
         url = pr["html_url"]
 
-        redis.lock() do |lock|
+        while redis.locked?("change-reviewers")
+          puts "Redis is locked, waiting..."
+          sleep 1
+        end
+
+        redis.lock("change-reviewers") do |lock|
+          puts "Redis lock aquired."
           notified_engineers = redis.get(REVIEW_REDIS_KEY + ":" + url)
 
           notified_engineers = if notified_engineers
